@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>UDA File Explorer (PoC)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #f4f6f8;
+    }
+
+    h2 {
+      margin-bottom: 10px;
+    }
+
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    .breadcrumb {
+      margin-bottom: 15px;
+    }
+
+    .breadcrumb span {
+      cursor: pointer;
+      color: #0078d4;
+      margin-right: 5px;
+    }
+
+    .breadcrumb span:hover {
+      text-decoration: underline;
+    }
+
+    .file-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .file-item:hover {
+      background-color: #f0f4f8;
+    }
+
+    .folder {
+      font-weight: bold;
+      color: #005a9e;
+      cursor: pointer;
+    }
+
+    .actions button,
+    .actions select {
+      margin-left: 5px;
+      padding: 4px 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .upload-section {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Unified Document Access (PoC)</h2>
+
+<div class="container">
+
+  <div class="breadcrumb" id="breadcrumb"></div>
+
+  <div id="fileList"></div>
+
+  <div class="upload-section">
+    <h3>Upload File</h3>
+    <input type="file" id="fileInput">
+    <button onclick="upload()">Upload</button>
+  </div>
+
+</div>
+
+<script>
+let currentFolderId = null;
+let folderStack = [];
+let fullFolderTree = [];
+
+// Fetch full folder hierarchy
+async function loadFolderTree() {
+  const res = await fetch("/files/folders/all");
+  fullFolderTree = await res.json();
+}
+
+async function loadFiles(folderId = null) {
+  currentFolderId = folderId;
+
+  if (folderId === null) {
+    folderStack = [];
+  }
+
+  renderBreadcrumb();
+
+  const res = await fetch(`/files?parentId=${folderId || ""}`);
+  const files = await res.json();
+
+  const list = document.getElementById("fileList");
+  list.innerHTML = "";
+
+  // Ensure folder tree loaded
+  if (!fullFolderTree.length) {
+    await loadFolderTree();
+  }
+
+  files.forEach(file => {
+    const row = document.createElement("div");
+    row.className = "file-item";
+
+    const nameDiv = document.createElement("div");
+
+    if (file.type === "folder") {
+      nameDiv.innerHTML = `📁 <span class="folder">${file.name}</span>`;
+      nameDiv.onclick = () => {
+        folderStack.push({ id: file.id, name: file.name });
+        loadFiles(file.id);
+      };
+    } else {
+      nameDiv.innerHTML = `📄 ${file.name}`;
+    }
+
+    const actionsDiv = document.createElement("div");
+    actionsDiv.className = "actions";
+
+    // Rename
+    const renameBtn = document.createElement("button");
+    renameBtn.innerText = "Rename";
+    renameBtn.onclick = () => rename(file.id);
+
+    // Move Dropdown (Full Tree)
+    const moveSelect = document.createElement("select");
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.text = "Move to...";
+    moveSelect.appendChild(defaultOption);
+
+    fullFolderTree.forEach(folder => {
+      if (folder.id !== file.id) {
+        const option = document.createElement("option");
+        option.value = folder.id;
+        option.text = `${"— ".repeat(folder.level)}${folder.name}`;
+        moveSelect.appendChild(option);
+      }
+    });
+
+    moveSelect.onchange = () => {
+      if (moveSelect.value) {
+        move(file.id, moveSelect.value);
+      }
+    };
+
+    // Copy
+    const copyBtn = document.createElement("button");
+    copyBtn.innerText = "Copy";
+    copyBtn.onclick = () => copy(file.id);
+
+    // Delete
+    const deleteBtn = document.createElement("button");
+    deleteBtn.innerText = "Delete";
+    deleteBtn.onclick = () => remove(file.id);
+
+    actionsDiv.append(renameBtn, moveSelect, copyBtn, deleteBtn);
+    row.append(nameDiv, actionsDiv);
+    list.appendChild(row);
+  });
+}
+
+function renderBreadcrumb() {
+  const bc = document.getElementById("breadcrumb");
+  bc.innerHTML = "";
+
+  const root = document.createElement("span");
+  root.innerText = "Root";
+  root.onclick = () => loadFiles(null);
+  bc.appendChild(root);
+
+  folderStack.forEach((folder, index) => {
+    const arrow = document.createTextNode(" / ");
+    bc.appendChild(arrow);
+
+    const crumb = document.createElement("span");
+    crumb.innerText = folder.name;
+    crumb.onclick = () => {
+      folderStack = folderStack.slice(0, index + 1);
+      loadFiles(folder.id);
+    };
+    bc.appendChild(crumb);
+  });
+}
+
+async function rename(id) {
+  const newName = prompt("Enter new name:");
+  if (!newName) return;
+
+  await fetch("/files/rename", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, newName })
+  });
+
+  loadFiles(currentFolderId);
+}
+
+async function move(id, targetFolderId) {
+  await fetch("/files/move", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, targetFolderId })
+  });
+
+  loadFiles(currentFolderId);
+}
+
+async function copy(id) {
+  await fetch("/files/copy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, targetFolderId: currentFolderId })
+  });
+
+  loadFiles(currentFolderId);
+}
+
+async function remove(id) {
+  if (!confirm("Are you sure you want to delete this item?")) return;
+
+  await fetch("/files/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id })
+  });
+
+  loadFiles(currentFolderId);
+}
+
+async function upload() {
+  const input = document.getElementById("fileInput");
+  if (!input.files.length) return;
+
+  const formData = new FormData();
+  formData.append("file", input.files[0]);
+  formData.append("targetFolderId", currentFolderId || "");
+
+  await fetch("/files/upload", {
+    method: "POST",
+    body: formData
+  });
+
+  input.value = "";
+  loadFiles(currentFolderId);
+}
+
+loadFolderTree();
+loadFiles();
+</script>
+
+</body>
+</html>
