@@ -3,7 +3,7 @@ console.log("🔥 sharepointAdapter loaded");
 const axios = require("axios");
 
 const DOMAIN = "puneoffice"; 
-const SITE_NAME = "AutodeskTeamsinCCTechGuild";
+const SITE_NAME = "RetinaTeam-AutoCADWebTeam";
 
 // Get SharePoint Site ID
 async function getSiteId(accessToken) {
@@ -47,7 +47,7 @@ async function listItems(parentId, accessToken) {
     return response.data.value.map(item => ({
       id: item.id,
       name: item.name,
-      folder: !!item.folder,
+      type: item.folder ? "folder" : "file",
       parentId: parentId || null,
       size: item.size,
       lastModifiedDateTime: item.lastModifiedDateTime
@@ -74,11 +74,12 @@ async function getAllFolders(accessToken) {
     .map(item => ({
       id: item.id,
       name: item.name,
-      folder: true,
+      type: "folder",
       parentId: null,
       size: item.size,
       lastModifiedDateTime: item.lastModifiedDateTime
     }));
+
 }
 
 // RENAME
