@@ -18,7 +18,7 @@ app.use(
 const fileRoutes = require("./routes/files");
 app.use("/files", fileRoutes);
 
-app.get("/login", (req, res) => {
+app.get("/login", async (req, res) => {
   const params = new URLSearchParams({
     client_id: process.env.CLIENT_ID,
     response_type: "code",
@@ -50,7 +50,9 @@ app.get("/auth/callback", async (req, res) => {
       }
     );
 
-    req.session.accessToken = tokenResponse.data.access_token;
+    req.session.refreshToken = tokenResponse.data.refresh_token;
+    req.session.expiresAt = Date.now() + (tokenResponse.data.expires_in * 1000);
+    // req.session.expiresAt = Date.now() - 1000;
 
     res.redirect("/");
   } catch (err) {
@@ -59,7 +61,7 @@ app.get("/auth/callback", async (req, res) => {
   }
 });
 
-app.get("/logout", (req, res) => {
+app.get("/logout", async (req, res) => {
   req.session.destroy(() => {
     res.redirect("/login");
   });

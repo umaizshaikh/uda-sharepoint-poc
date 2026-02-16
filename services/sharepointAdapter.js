@@ -1,3 +1,5 @@
+console.log("🔥 sharepointAdapter loaded");
+
 const axios = require("axios");
 
 const DOMAIN = "puneoffice"; 
@@ -5,6 +7,8 @@ const SITE_NAME = "AutodeskTeamsinCCTechGuild";
 
 // Get SharePoint Site ID
 async function getSiteId(accessToken) {
+  console.log("🔥 getSiteId CALLED");
+
   try {
     const response = await axios.get(
       `https://graph.microsoft.com/v1.0/sites/${DOMAIN}.sharepoint.com:/sites/${SITE_NAME}:`,
@@ -13,6 +17,7 @@ async function getSiteId(accessToken) {
           Authorization: `Bearer ${accessToken}`
         }
       }
+
     );
 
     return response.data.id;
@@ -52,6 +57,28 @@ async function listItems(parentId, accessToken) {
     console.log("listItems ERROR:", err.response?.data || err.message);
     throw err;
   }
+}
+
+async function getAllFolders(accessToken) {
+  const siteId = await getSiteId(accessToken);
+
+  const response = await axios.get(
+    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    }
+  );
+
+  return response.data.value
+    .filter(item => item.folder)
+    .map(item => ({
+      id: item.id,
+      name: item.name,
+      folder: true,
+      parentId: null,
+      size: item.size,
+      lastModifiedDateTime: item.lastModifiedDateTime
+    }));
 }
 
 // RENAME
@@ -181,5 +208,6 @@ module.exports = {
   moveItem,
   deleteItem,
   uploadItem,
-  copyItem
+  copyItem,
+  getAllFolders
 };

@@ -2,22 +2,30 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
-const filesystem = require("../services/filesystem");
+const FileService = require("../services/FileService");
+const SharePointProvider = require("../providers/SharePointProvider");
+const TokenService = require("../services/TokenService");
+const provider = new SharePointProvider();
+const fileService = new FileService(provider);
 
 /**
  * Helper: Get token from session
  */
-function getToken(req, res) {
-  const token = req.session?.accessToken;
 
-  if (!token) {
-    res.status(401).json({
-      error: "Not authenticated. Please login again."
-    });
+async function getToken(req, res) {
+  try {
+    if (!req.session) {
+      res.status(401).json({ error: "Session not found" });
+      return null;
+    }
+
+    const token = await TokenService.getValidAccessToken(req.session);
+    return token;
+
+  } catch (err) {
+    res.status(401).json({ error: "Authentication expired. Please login again." });
     return null;
   }
-
-  return token;
 }
 
 /**
@@ -25,12 +33,12 @@ function getToken(req, res) {
  */
 router.get("/", async (req, res) => {
   try {
-    const token = getToken(req, res);
+    const token = await getToken(req, res);
     if (!token) return;
 
     const parentId = req.query.parentId || null;
 
-    const files = await filesystem.list(parentId, token);
+    const files = await fileService.list(parentId, { accessToken: token });
     res.json(files);
 
   } catch (err) {
@@ -46,7 +54,7 @@ router.get("/", async (req, res) => {
  */
 router.post("/rename", async (req, res) => {
   try {
-    const token = getToken(req, res);
+    const token = await getToken(req, res);
     if (!token) return;
 
     const { id, newName } = req.body;
@@ -57,7 +65,7 @@ router.post("/rename", async (req, res) => {
       });
     }
 
-    const updated = await filesystem.rename(id, newName, token);
+    const updated = await fileService.rename(id, newName, { accessToken: token });
     res.json(updated);
 
   } catch (err) {
@@ -71,10 +79,10 @@ router.post("/rename", async (req, res) => {
 // GET all folders recursively (for Move dropdown)
 router.get("/folders/all", async (req, res) => {
   try {
-    const token = getToken(req, res);
+    const token = await getToken(req, res);
     if (!token) return;
 
-    const folders = await filesystem.getAllFolders(token);
+    const folders = await fileService.getAllFolders({ accessToken: token });
     res.json(folders);
 
   } catch (err) {
@@ -91,7 +99,7 @@ router.get("/folders/all", async (req, res) => {
  */
 router.post("/move", async (req, res) => {
   try {
-    const token = getToken(req, res);
+    const token = await getToken(req, res);
     if (!token) return;
 
     const { id, targetFolderId } = req.body;
@@ -102,7 +110,12 @@ router.post("/move", async (req, res) => {
       });
     }
 
-    const updated = await filesystem.move(id, targetFolderId || null, token);
+    const updated = await fileService.move(
+      id,
+      targetFolderId || null,
+      { accessToken: token }
+    );
+
     res.json(updated);
 
   } catch (err) {
@@ -118,7 +131,7 @@ router.post("/move", async (req, res) => {
  */
 router.post("/upload", upload.single("file"), async (req, res) => {
   try {
-    const token = getToken(req, res);
+    const token = await getToken(req, res);
     if (!token) return;
 
     const file = req.file;
@@ -130,12 +143,13 @@ router.post("/upload", upload.single("file"), async (req, res) => {
       });
     }
 
-    const created = await filesystem.upload(
+    const created = await fileService.upload(
       file.originalname,
       file.buffer,
       targetFolderId,
-      token
+      { accessToken: token }
     );
+
 
     res.json(created);
 
@@ -152,7 +166,7 @@ router.post("/upload", upload.single("file"), async (req, res) => {
  */
 router.post("/copy", async (req, res) => {
   try {
-    const token = getToken(req, res);
+    const token = await getToken(req, res);
     if (!token) return;
 
     const { id, targetFolderId } = req.body;
@@ -163,7 +177,12 @@ router.post("/copy", async (req, res) => {
       });
     }
 
-    const copied = await filesystem.copy(id, targetFolderId || null, token);
+    const copied = await fileService.copy(
+      id,
+      targetFolderId || null,
+      { accessToken: token }
+    );
+
     res.json(copied);
 
   } catch (err) {
@@ -179,7 +198,7 @@ router.post("/copy", async (req, res) => {
  */
 router.post("/delete", async (req, res) => {
   try {
-    const token = getToken(req, res);
+    const token = await getToken(req, res);
     if (!token) return;
 
     const { id } = req.body;
@@ -190,7 +209,7 @@ router.post("/delete", async (req, res) => {
       });
     }
 
-    const deleted = await filesystem.remove(id, token);
+    const deleted = await fileService.delete(id, { accessToken: token });
     res.json(deleted);
 
   } catch (err) {
