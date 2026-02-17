@@ -26,15 +26,15 @@ The architecture is intentionally structured for potential integration into L2FS
 ```
 
 Express Routes
-↓
+->
 FileService
-↓
+->
 FileProvider (Interface)
-↓
+->
 SharePointProvider
-↓
+->
 sharepointAdapter (Graph API Wrapper)
-↓
+->
 Microsoft Graph API
 
 ````
