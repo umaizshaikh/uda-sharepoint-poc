@@ -31,17 +31,17 @@ The implementation follows these principles:
 ````
 
 Client (UI)
-↓
+->
 Express Route Layer
-↓
+->
 FileService (Application Layer)
-↓
+->
 FileProvider Interface (SPI Contract)
-↓
+->
 SharePointProvider (Concrete Implementation)
-↓
+->
 sharepointAdapter (Graph Wrapper)
-↓
+->
 Microsoft Graph API
 
 ```
