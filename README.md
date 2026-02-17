@@ -313,13 +313,6 @@ This project proves technical feasibility of integrating SharePoint into a unifi
 The architecture is modular, secure, extensible, and ready for further hardening toward production.
 
 ```
-
----
-
-If you'd like, next we can:
-
-- Add an Architecture Diagram section (enterprise style)
-- Add a Swagger/OpenAPI definition
 - Or write a technical brief to send to Autodesk
 
 You're now operating at integration-architecture level.
