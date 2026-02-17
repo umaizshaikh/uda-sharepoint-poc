@@ -1,158 +1,87 @@
-This is written so:
-
-* Autodesk engineers can understand it
-* Another developer can take over
-* It clearly explains architecture, auth flow, and design decisions
-* It looks professional
-
----
-
 # 📄 README.md
 
 ```markdown
-# UDA SharePoint Provider – PoC
+# UDA SharePoint Provider – Proof of Concept
 
 ## Overview
 
-This project implements a **SharePoint Service Provider** compatible with Autodesk's L2FS-style filesystem abstraction.
+This repository contains a Proof of Concept (PoC) implementation of a **SharePoint Service Provider** compatible with Autodesk’s L2FS (Layer 2 File System) abstraction model.
 
-The goal of this Proof of Concept (PoC) is to demonstrate:
+The objective is to validate the technical feasibility of federating SharePoint storage into a unified filesystem interface similar to UDA/L2FS.
 
-- Federated document access
+This PoC demonstrates:
+
 - SharePoint integration via Microsoft Graph
+- Delegated OAuth2 authentication (user context)
 - Full CRUD filesystem operations
-- Delegated OAuth2 authentication
-- Clean provider abstraction (SPI-style architecture)
+- SPI-style provider abstraction
+- Clean separation of concerns
 
-This implementation is structured so Autodesk engineers can extend or integrate it into L2FS with minimal refactoring.
+The architecture is intentionally structured for potential integration into L2FS with minimal refactoring.
 
 ---
 
-# Architecture
-
-## High-Level Flow
+## Architecture (High-Level)
 
 ```
 
 Express Routes
 ↓
-FileService (Abstraction Layer)
+FileService
 ↓
-FileProvider Interface
+FileProvider (Interface)
 ↓
 SharePointProvider
 ↓
-sharepointAdapter (Microsoft Graph API)
+sharepointAdapter (Graph API Wrapper)
 ↓
-Microsoft Graph (SharePoint)
-
-```
-
-This mirrors the L2FS Service Provider Interface (SPI) pattern.
-
----
-
-# Authentication Model
-
-We use:
-
-**OAuth2 Authorization Code Flow (Delegated Login)**
-
-### Features:
-
-- User signs in with Microsoft account
-- Access token stored in session
-- Refresh token stored in session
-- Automatic token refresh implemented
-- No manual re-login required after expiry
-
-### Token Lifecycle
-
-`TokenService.js` handles:
-
-- Token validity check
-- Automatic refresh using refresh_token
-- Session updates
-- Expiry timestamp management
-
----
-
-# Microsoft Graph APIs Used
-
-All SharePoint access is done through:
-
-```
-
-[https://graph.microsoft.com/v1.0/](https://graph.microsoft.com/v1.0/)
+Microsoft Graph API
 
 ````
 
-### Endpoints Used
+- Routes are provider-agnostic
+- Business logic depends on abstraction
+- SharePoint-specific logic is isolated
+- UI is decoupled from storage implementation
 
-| Operation | Endpoint |
-|------------|----------|
-| Get Site ID | `/sites/{domain}.sharepoint.com:/sites/{siteName}:` |
-| List Root | `/sites/{siteId}/drive/root/children` |
-| List Folder | `/sites/{siteId}/drive/items/{itemId}/children` |
-| Rename | `PATCH /drive/items/{itemId}` |
-| Move | `PATCH /drive/items/{itemId}` |
-| Upload | `PUT /drive/root:/filename:/content` |
-| Delete | `DELETE /drive/items/{itemId}` |
-| Copy | `POST /drive/items/{itemId}/copy` |
-
-> Note: Copy operation internally uses asynchronous Graph behavior.
+See `ARCHITECTURE.md` for detailed design documentation.
 
 ---
 
-# Filesystem Contract
+## Implemented Operations
 
-All providers must return a normalized filesystem object:
-
-```json
-{
-  "id": "string",
-  "name": "string",
-  "type": "file | folder",
-  "parentId": "string | null",
-  "size": "number",
-  "lastModifiedDateTime": "ISO string"
-}
-````
-
-This ensures UI is decoupled from provider implementation.
-
----
-
-# Implemented Operations
-
-| Operation       | Route                    |
-| --------------- | ------------------------ |
-| List Files      | `GET /files`             |
+| Operation | Route |
+|------------|--------|
+| List Files | `GET /files` |
 | Get All Folders | `GET /files/folders/all` |
-| Rename          | `POST /files/rename`     |
-| Move            | `POST /files/move`       |
-| Upload          | `POST /files/upload`     |
-| Copy            | `POST /files/copy`       |
-| Delete          | `POST /files/delete`     |
+| Rename | `POST /files/rename` |
+| Move | `POST /files/move` |
+| Upload (small files) | `POST /files/upload` |
+| Copy | `POST /files/copy` |
+| Delete | `POST /files/delete` |
+
+All responses return a normalized filesystem object independent of SharePoint-specific fields.
 
 ---
 
-# Setup Instructions
+## Setup
 
-## 1. Clone Repository
+### 1. Clone Repository
 
-```
+```bash
 git clone <repo>
 cd uda-sharepoint-poc
-```
+````
 
-## 2. Install Dependencies
+### 2. Install Dependencies
 
-```
+```bash
 npm install
 ```
 
-## 3. Create `.env` File
+### 3. Configure Environment
+
+Create `.env`:
 
 ```
 TENANT_ID=
@@ -161,15 +90,17 @@ CLIENT_SECRET=
 SESSION_SECRET=
 ```
 
-## 4. Azure App Registration Requirements
+---
 
-### Redirect URI:
+## Azure App Registration
+
+### Redirect URI
 
 ```
 http://localhost:3000/auth/callback
 ```
 
-### Required Delegated Permissions:
+### Required Delegated Permissions
 
 * Files.ReadWrite
 * Sites.ReadWrite.All
@@ -181,9 +112,9 @@ Admin consent required.
 
 ---
 
-# Running the Project
+## Run Application
 
-```
+```bash
 node server.js
 ```
 
@@ -195,125 +126,49 @@ http://localhost:3000/login
 
 ---
 
-# Project Structure
+## Key Design Decisions
 
-```
-/routes
-    files.js
+* **Delegated OAuth2 (User Context)**
+  Ensures SharePoint ACL compliance and aligns with UDA user model.
 
-/services
-    FileService.js
-    TokenService.js
-    sharepointAdapter.js
+* **Provider Abstraction (SPI Pattern)**
+  Additional providers (OneDrive, Dropbox, ACC Docs, etc.) can be added without route changes.
 
-/providers
-    FileProvider.js
-    SharePointProvider.js
+* **Token Lifecycle Centralization**
+  Automatic refresh handled by `TokenService`.
 
-/public
-    index.html
-
-server.js
-.env
-```
+* **Storage Decoupling**
+  UI and routes do not depend on SharePoint-specific structures.
 
 ---
 
-# Key Design Decisions
+## Known PoC Limitations
 
-## 1. Provider Abstraction
-
-We implemented a provider interface so additional providers can be added:
-
-* ACC Docs
-* Fusion
-* OneDrive
-* Dropbox
-
-Without changing route logic.
-
----
-
-## 2. Delegated Auth (Not App-Only)
-
-We intentionally used delegated login because:
-
-* Matches UDA user login model
-* Respects SharePoint ACLs
-* Avoids global tenant access
-
----
-
-## 3. Automatic Token Refresh
-
-Token refresh is handled transparently in:
-
-```
-TokenService.getValidAccessToken()
-```
-
-Routes do not manage expiry logic.
-
----
-
-## 4. Context-Based Provider Calls
-
-All service calls use:
-
-```
-fileService.method(..., { accessToken })
-```
-
-This prevents future coupling to session storage.
-
----
-
-# Known Limitations (PoC Scope)
-
-* Copy operation does not poll async status (Graph 202)
-* Large file upload (>4MB) not implemented (needs upload session)
-* SiteId not cached (optimization possible)
-* No webhook sync
-* No permission mapping translation
+* Async copy polling not implemented
+* Large file chunked upload not implemented
+* SiteId caching not implemented
+* No webhook-based synchronization
 * Session-based (not stateless)
+* No structured logging or standardized error contract
 
 ---
 
-# Future Production Enhancements
+## Production Hardening (Next Steps)
 
-* Async copy polling
-* SiteId caching
+* Async operation tracking for copy
+* SiteId caching layer
+* Chunked upload support
 * Structured logging
-* Standardized error contract
-* Large file chunked upload
-* Stateless token handling
+* Error contract standardization
+* Stateless token management
 * Multi-tenant support
-* Webhook change notifications
 
 ---
 
-# Why This Matches L2FS Goals
+## Conclusion
 
-This PoC demonstrates:
+This PoC validates the feasibility of integrating SharePoint into an L2FS-style unified filesystem abstraction using a modular, extensible provider architecture.
 
-* Unified filesystem abstraction
-* Service Provider Interface design
-* SharePoint federation feasibility
-* Real-time file operations
-* Clean extensible architecture
+For detailed technical design, see `ARCHITECTURE.md`.
 
-It is structured for easy integration into L2FS REST or GraphQL workflows.
-
----
-
-# Conclusion
-
-This project proves technical feasibility of integrating SharePoint into a unified filesystem abstraction layer similar to Autodesk L2FS.
-
-The architecture is modular, secure, extensible, and ready for further hardening toward production.
-
-```
-- Or write a technical brief to send to Autodesk
-
-You're now operating at integration-architecture level.
-```
+````
