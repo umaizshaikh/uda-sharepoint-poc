@@ -5,13 +5,32 @@ const upload = multer({ storage: multer.memoryStorage() });
 const FileService = require("../services/FileService");
 const SharePointProvider = require("../providers/SharePointProvider");
 const TokenService = require("../services/TokenService");
+const { ProviderError } = require("../errors/ProviderError");
 const provider = new SharePointProvider();
 const fileService = new FileService(provider);
 
 /**
+ * Helper: Handle provider errors consistently
+ */
+function handleProviderError(err, res, operation = "unknown") {
+  if (err instanceof ProviderError) {
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json(err.toJSON());
+  } else {
+    // Fallback for non-ProviderError (shouldn't happen, but defensive)
+    console.error(`${operation} ERROR (non-ProviderError):`, err);
+    res.status(500).json({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: err.message || "An unexpected error occurred"
+      }
+    });
+  }
+}
+
+/**
  * Helper: Get token from session
  */
-
 async function getToken(req, res) {
   try {
     if (!req.session) {
@@ -42,10 +61,8 @@ router.get("/", async (req, res) => {
     res.json(files);
 
   } catch (err) {
-    console.error("LIST ERROR:", err.response?.data || err.message);
-    res.status(500).json({
-      error: err.response?.data?.error?.message || err.message
-    });
+    console.error("LIST ERROR:", err);
+    handleProviderError(err, res, "list");
   }
 });
 
@@ -69,10 +86,8 @@ router.post("/rename", async (req, res) => {
     res.json(updated);
 
   } catch (err) {
-    console.error("RENAME ERROR:", err.response?.data || err.message);
-    res.status(500).json({
-      error: err.response?.data?.error?.message || err.message
-    });
+    console.error("RENAME ERROR:", err);
+    handleProviderError(err, res, "rename");
   }
 });
 
@@ -86,10 +101,8 @@ router.get("/folders/all", async (req, res) => {
     res.json(folders);
 
   } catch (err) {
-    console.error("FOLDER TREE ERROR:", err.response?.data || err.message);
-    res.status(500).json({
-      error: err.response?.data?.error?.message || err.message
-    });
+    console.error("FOLDER TREE ERROR:", err);
+    handleProviderError(err, res, "getAllFolders");
   }
 });
 
@@ -119,10 +132,8 @@ router.post("/move", async (req, res) => {
     res.json(updated);
 
   } catch (err) {
-    console.error("MOVE ERROR:", err.response?.data || err.message);
-    res.status(500).json({
-      error: err.response?.data?.error?.message || err.message
-    });
+    console.error("MOVE ERROR:", err);
+    handleProviderError(err, res, "move");
   }
 });
 
@@ -154,10 +165,8 @@ router.post("/upload", upload.single("file"), async (req, res) => {
     res.json(created);
 
   } catch (err) {
-    console.error("UPLOAD ERROR:", err.response?.data || err.message);
-    res.status(500).json({
-      error: err.response?.data?.error?.message || err.message
-    });
+    console.error("UPLOAD ERROR:", err);
+    handleProviderError(err, res, "upload");
   }
 });
 
@@ -189,10 +198,8 @@ router.post("/copy", async (req, res) => {
       message: "Copy started. Poll GET /files/copy/status/:operationId for progress and result."
     });
   } catch (err) {
-    console.error("COPY ERROR:", err.response?.data || err.message);
-    res.status(500).json({
-      error: err.response?.data?.error?.message || err.message
-    });
+    console.error("COPY ERROR:", err);
+    handleProviderError(err, res, "copy");
   }
 });
 
@@ -203,17 +210,10 @@ router.get("/copy/status/:operationId", async (req, res) => {
   try {
     const { operationId } = req.params;
     const status = await fileService.getCopyStatus(operationId);
-
-    if (status === null) {
-      return res.status(404).json({ error: "Operation not found or expired" });
-    }
-
     res.json(status);
   } catch (err) {
-    console.error("COPY STATUS ERROR:", err.message);
-    res.status(500).json({
-      error: err.message
-    });
+    console.error("COPY STATUS ERROR:", err);
+    handleProviderError(err, res, "getCopyStatus");
   }
 });
 
@@ -237,10 +237,8 @@ router.post("/delete", async (req, res) => {
     res.json(deleted);
 
   } catch (err) {
-    console.error("DELETE ERROR:", err.response?.data || err.message);
-    res.status(500).json({
-      error: err.response?.data?.error?.message || err.message
-    });
+    console.error("DELETE ERROR:", err);
+    handleProviderError(err, res, "delete");
   }
 });
 

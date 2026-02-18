@@ -2,6 +2,7 @@ console.log("🔥 sharepointAdapter loaded");
 
 const axios = require("axios");
 const crypto = require("crypto");
+const { wrapGraphError, wrapError, ProviderError } = require("../errors/ProviderError");
 
 // In-memory store for copy operations (Graph returns 202 + monitor URL)
 const copyOperations = new Map();
@@ -17,12 +18,20 @@ function invalidateSiteIdCache() {
   siteIdCache.expiresAt = 0;
 }
 
-function handleAdapterError(err) {
+function handleAdapterError(err, operation) {
+  // Invalidate cache on auth/resource errors
   const status = err.response?.status;
   if (status === 401 || status === 403 || status === 404) {
     invalidateSiteIdCache();
   }
-  throw err;
+  
+  // Wrap Graph API errors as ProviderError
+  if (err.response) {
+    throw wrapGraphError(err, operation);
+  }
+  
+  // Wrap other errors
+  throw wrapError(err, operation);
 }
 
 async function getSiteId(accessToken) {
@@ -45,7 +54,7 @@ async function getSiteId(accessToken) {
     return id;
   } catch (err) {
     console.log("getSiteId ERROR:", err.response?.data || err.message);
-    throw err;
+    handleAdapterError(err, "getSiteId");
   }
 }
 
@@ -76,7 +85,7 @@ async function listItems(parentId, accessToken) {
 
   } catch (err) {
     console.log("listItems ERROR:", err.response?.data || err.message);
-    handleAdapterError(err);
+    handleAdapterError(err, "listItems");
   }
 }
 
@@ -101,7 +110,7 @@ async function getAllFolders(accessToken) {
       }));
   } catch (err) {
     console.log("getAllFolders ERROR:", err.response?.data || err.message);
-    handleAdapterError(err);
+    handleAdapterError(err, "getAllFolders");
   }
 }
 
@@ -124,7 +133,7 @@ async function renameItem(id, newName, accessToken) {
     return response.data;
   } catch (err) {
     console.log("renameItem ERROR:", err.response?.data || err.message);
-    handleAdapterError(err);
+    handleAdapterError(err, "renameItem");
   }
 }
 
@@ -151,7 +160,7 @@ async function moveItem(id, targetFolderId, accessToken) {
     return response.data;
   } catch (err) {
     console.log("moveItem ERROR:", err.response?.data || err.message);
-    handleAdapterError(err);
+    handleAdapterError(err, "moveItem");
   }
 }
 
@@ -168,7 +177,7 @@ async function deleteItem(id, accessToken) {
     return { id };
   } catch (err) {
     console.log("deleteItem ERROR:", err.response?.data || err.message);
-    handleAdapterError(err);
+    handleAdapterError(err, "deleteItem");
   }
 }
 
@@ -191,7 +200,7 @@ async function uploadItem(name, fileBuffer, targetFolderId, accessToken) {
     return response.data;
   } catch (err) {
     console.log("uploadItem ERROR:", err.response?.data || err.message);
-    handleAdapterError(err);
+    handleAdapterError(err, "uploadItem");
   }
 }
 
@@ -238,7 +247,11 @@ async function startCopy(id, targetFolderId, accessToken) {
 
     const monitorUrl = response.headers?.location;
     if (!monitorUrl) {
-      throw new Error("Graph copy did not return 202 with Location header");
+      throw wrapError(
+        new Error("Graph copy did not return 202 with Location header"),
+        "startCopy",
+        "INVALID_RESPONSE"
+      );
     }
 
     const operationId = crypto.randomUUID();
@@ -252,7 +265,7 @@ async function startCopy(id, targetFolderId, accessToken) {
     return { operationId, newName, sourceId: id };
   } catch (err) {
     console.log("startCopy ERROR:", err.response?.data || err.message);
-    handleAdapterError(err);
+    handleAdapterError(err, "startCopy");
   }
 }
 
@@ -261,47 +274,60 @@ async function startCopy(id, targetFolderId, accessToken) {
  */
 async function getCopyStatus(operationId) {
   const op = copyOperations.get(operationId);
-  if (!op) return null;
+  if (!op) {
+    throw wrapError(
+      new Error(`Copy operation ${operationId} not found or expired`),
+      "getCopyStatus",
+      "OPERATION_NOT_FOUND"
+    );
+  }
 
   if (op.completedResult) {
     return op.completedResult;
   }
 
-  const res = await axios.get(op.monitorUrl, {
-    validateStatus: () => true,
-    maxRedirects: 0
-  });
+  try {
+    const res = await axios.get(op.monitorUrl, {
+      validateStatus: () => true,
+      maxRedirects: 0
+    });
 
-  if (res.status === 202) {
-    const body = res.data || {};
-    return {
-      status: body.status || "inProgress",
-      percentageComplete: body.percentageComplete ?? 0,
-      newName: op.newName
-    };
-  }
-
-  if (res.status === 303 || res.status === 200) {
-    let resourceId = res.data?.resourceId;
-    if (!resourceId && res.headers?.location) {
-      const m = res.headers.location.match(/\/items\/([^/?]+)/);
-      if (m) resourceId = m[1];
+    if (res.status === 202) {
+      const body = res.data || {};
+      return {
+        status: body.status || "inProgress",
+        percentageComplete: body.percentageComplete ?? 0,
+        newName: op.newName
+      };
     }
-    const result = {
-      status: "completed",
-      resourceId,
-      newName: op.newName
-    };
-    op.completedResult = result;
-    return result;
-  }
 
-  const result = {
-    status: "failed",
-    error: res.data?.error?.message || `Unexpected status ${res.status}`
-  };
-  op.completedResult = result;
-  return result;
+    if (res.status === 303 || res.status === 200) {
+      let resourceId = res.data?.resourceId;
+      if (!resourceId && res.headers?.location) {
+        const m = res.headers.location.match(/\/items\/([^/?]+)/);
+        if (m) resourceId = m[1];
+      }
+      const result = {
+        status: "completed",
+        resourceId,
+        newName: op.newName
+      };
+      op.completedResult = result;
+      return result;
+    }
+
+    // Unexpected status - wrap as error
+    throw wrapError(
+      new Error(`Monitor URL returned unexpected status ${res.status}`),
+      "getCopyStatus",
+      "MONITOR_ERROR"
+    );
+  } catch (err) {
+    if (err instanceof ProviderError) {
+      throw err;
+    }
+    handleAdapterError(err, "getCopyStatus");
+  }
 }
 
 /** Legacy: start copy and return immediately (for callers that don't use status). */
