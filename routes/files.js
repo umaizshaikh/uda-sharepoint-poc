@@ -162,7 +162,7 @@ router.post("/upload", upload.single("file"), async (req, res) => {
 });
 
 /**
- * POST - Copy
+ * POST - Copy (async: returns operationId, poll GET /copy/status/:operationId for progress)
  */
 router.post("/copy", async (req, res) => {
   try {
@@ -177,18 +177,42 @@ router.post("/copy", async (req, res) => {
       });
     }
 
-    const copied = await fileService.copy(
+    const result = await fileService.startCopy(
       id,
       targetFolderId || null,
       { accessToken: token }
     );
 
-    res.json(copied);
-
+    res.status(202).json({
+      operationId: result.operationId,
+      newName: result.newName,
+      message: "Copy started. Poll GET /files/copy/status/:operationId for progress and result."
+    });
   } catch (err) {
     console.error("COPY ERROR:", err.response?.data || err.message);
     res.status(500).json({
       error: err.response?.data?.error?.message || err.message
+    });
+  }
+});
+
+/**
+ * GET - Copy operation status (progress and result when completed)
+ */
+router.get("/copy/status/:operationId", async (req, res) => {
+  try {
+    const { operationId } = req.params;
+    const status = await fileService.getCopyStatus(operationId);
+
+    if (status === null) {
+      return res.status(404).json({ error: "Operation not found or expired" });
+    }
+
+    res.json(status);
+  } catch (err) {
+    console.error("COPY STATUS ERROR:", err.message);
+    res.status(500).json({
+      error: err.message
     });
   }
 });

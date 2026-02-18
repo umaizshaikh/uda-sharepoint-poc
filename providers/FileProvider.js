@@ -24,6 +24,14 @@ class FileProvider {
     throw new Error("Not implemented");
   }
 
+  async startCopy(id, targetFolderId, context) {
+    throw new Error("Not implemented");
+  }
+
+  async getCopyStatus(operationId) {
+    throw new Error("Not implemented");
+  }
+
   async delete(id, context) {
     throw new Error("Not implemented");
   }

@@ -23,6 +23,14 @@ class FileService {
     return this.provider.copy(id, targetFolderId, context);
   }
 
+  startCopy(id, targetFolderId, context) {
+    return this.provider.startCopy(id, targetFolderId, context);
+  }
+
+  getCopyStatus(operationId) {
+    return this.provider.getCopyStatus(operationId);
+  }
+
   delete(id, context) {
     return this.provider.delete(id, context);
   }

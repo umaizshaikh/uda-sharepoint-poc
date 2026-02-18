@@ -1,6 +1,10 @@
 console.log("🔥 sharepointAdapter loaded");
 
 const axios = require("axios");
+const crypto = require("crypto");
+
+// In-memory store for copy operations (Graph returns 202 + monitor URL)
+const copyOperations = new Map();
 
 const DOMAIN = "puneoffice"; 
 const SITE_NAME = "RetinaTeam-AutoCADWebTeam";
@@ -154,53 +158,114 @@ async function uploadItem(name, fileBuffer, targetFolderId, accessToken) {
   return response.data;
 }
 
-// COPY
-async function copyItem(id, targetFolderId, accessToken) {
-  const siteId = await getSiteId(accessToken);
-
-  // First fetch original item details
-  const itemInfo = await axios.get(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    }
-  );
-
-  const originalName = itemInfo.data.name;
-
-  // Split name and extension
+// COPY (async: Graph returns 202 + Location monitor URL)
+function _copyNewName(originalName) {
   const dotIndex = originalName.lastIndexOf(".");
-  let newName;
-
   if (dotIndex > 0) {
     const base = originalName.substring(0, dotIndex);
     const ext = originalName.substring(dotIndex);
-    newName = `${base}_copy${ext}`;
-  } else {
-    newName = `${originalName}_copy`;
+    return `${base}_copy${ext}`;
   }
+  return `${originalName}_copy`;
+}
 
-  // Perform copy
-  await axios.post(
+/**
+ * Start copy: calls Graph, accepts 202, stores monitor URL, returns operationId.
+ * Client should poll getCopyStatus(operationId) for progress and result.
+ */
+async function startCopy(id, targetFolderId, accessToken) {
+  const siteId = await getSiteId(accessToken);
+
+  const itemInfo = await axios.get(
+    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  const newName = _copyNewName(itemInfo.data.name);
+
+  const response = await axios.post(
     `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}/copy`,
     {
-      parentReference: targetFolderId
-        ? { id: targetFolderId }
-        : undefined,
+      parentReference: targetFolderId ? { id: targetFolderId } : undefined,
       name: newName
     },
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json"
-      }
+      },
+      validateStatus: (status) => status === 202
     }
   );
 
-  return {
-    id,
-    name: newName
+  const monitorUrl = response.headers?.location;
+  if (!monitorUrl) {
+    throw new Error("Graph copy did not return 202 with Location header");
+  }
+
+  const operationId = crypto.randomUUID();
+  copyOperations.set(operationId, {
+    monitorUrl,
+    newName,
+    sourceId: id,
+    createdAt: Date.now()
+  });
+
+  return { operationId, newName, sourceId: id };
+}
+
+/**
+ * Poll Graph monitor URL (no auth required). Returns status and, when done, resourceId.
+ */
+async function getCopyStatus(operationId) {
+  const op = copyOperations.get(operationId);
+  if (!op) return null;
+
+  if (op.completedResult) {
+    return op.completedResult;
+  }
+
+  const res = await axios.get(op.monitorUrl, {
+    validateStatus: () => true,
+    maxRedirects: 0
+  });
+
+  if (res.status === 202) {
+    const body = res.data || {};
+    return {
+      status: body.status || "inProgress",
+      percentageComplete: body.percentageComplete ?? 0,
+      newName: op.newName
+    };
+  }
+
+  if (res.status === 303 || res.status === 200) {
+    let resourceId = res.data?.resourceId;
+    if (!resourceId && res.headers?.location) {
+      const m = res.headers.location.match(/\/items\/([^/?]+)/);
+      if (m) resourceId = m[1];
+    }
+    const result = {
+      status: "completed",
+      resourceId,
+      newName: op.newName
+    };
+    op.completedResult = result;
+    return result;
+  }
+
+  const result = {
+    status: "failed",
+    error: res.data?.error?.message || `Unexpected status ${res.status}`
   };
+  op.completedResult = result;
+  return result;
+}
+
+/** Legacy: start copy and return immediately (for callers that don't use status). */
+async function copyItem(id, targetFolderId, accessToken) {
+  const { operationId, newName } = await startCopy(id, targetFolderId, accessToken);
+  return { id: operationId, name: newName };
 }
 
 module.exports = {
@@ -210,5 +275,7 @@ module.exports = {
   deleteItem,
   uploadItem,
   copyItem,
+  startCopy,
+  getCopyStatus,
   getAllFolders
 };

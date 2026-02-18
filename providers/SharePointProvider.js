@@ -31,6 +31,18 @@ class SharePointProvider extends FileProvider {
     );
   }
 
+  async startCopy(id, targetFolderId, context) {
+    return sharepointAdapter.startCopy(
+      id,
+      targetFolderId,
+      context.accessToken
+    );
+  }
+
+  async getCopyStatus(operationId) {
+    return sharepointAdapter.getCopyStatus(operationId);
+  }
+
   async delete(id, context) {
     return sharepointAdapter.deleteItem(id, context.accessToken);
   }
