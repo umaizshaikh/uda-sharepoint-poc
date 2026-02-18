@@ -262,7 +262,7 @@ async function startCopy(id, targetFolderId, accessToken) {
       createdAt: Date.now()
     });
 
-    return { operationId, newName, sourceId: id };
+    return { operationId, newName, sourceId: id, monitorUrl };
   } catch (err) {
     console.log("startCopy ERROR:", err.response?.data || err.message);
     handleAdapterError(err, "startCopy");

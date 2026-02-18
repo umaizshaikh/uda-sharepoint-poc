@@ -6,6 +6,7 @@ const FileService = require("../services/FileService");
 const SharePointProvider = require("../providers/SharePointProvider");
 const TokenService = require("../services/TokenService");
 const { ProviderError } = require("../errors/ProviderError");
+const OperationManager = require("../services/OperationManager");
 const provider = new SharePointProvider();
 const fileService = new FileService(provider);
 
@@ -239,6 +240,30 @@ router.post("/delete", async (req, res) => {
   } catch (err) {
     console.error("DELETE ERROR:", err);
     handleProviderError(err, res, "delete");
+  }
+});
+
+/**
+ * GET - Get operation status by ID
+ * Mounted at /operations in server.js, so full path is /operations/:id
+ */
+router.get('/:id', (req, res) => {
+  try {
+    const operation = OperationManager.get(req.params.id);
+
+    if (!operation) {
+      const error = new ProviderError(
+        'OPERATION_NOT_FOUND',
+        'Operation not found or expired',
+        404
+      );
+      return res.status(404).json(error.toJSON());
+    }
+
+    res.json(operation);
+  } catch (err) {
+    console.error("GET OPERATION ERROR:", err);
+    handleProviderError(err, res, "getOperation");
   }
 });
 

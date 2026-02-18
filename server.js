@@ -3,6 +3,7 @@ const express = require("express");
 const session = require("express-session");
 const axios = require("axios");
 const path = require("path");
+const OperationManager = require("./services/OperationManager");
 
 const app = express();
 app.use(express.json());
@@ -69,6 +70,15 @@ app.get("/logout", async (req, res) => {
 
 app.use(express.static("public"));
 
+app.use('/operations', require('./routes/files'));
+
 app.listen(3000, () => {
   console.log("Server running on port 3000");
+
+  // In-memory TTL cleanup for PoC: Remove expired operations every 60 seconds
+  // Operations older than 1 hour (3600000ms) are automatically cleaned up
+  // This prevents memory leaks in the in-memory operation store
+  setInterval(() => {
+    OperationManager.cleanup(3600000);
+  }, 60000);
 });
