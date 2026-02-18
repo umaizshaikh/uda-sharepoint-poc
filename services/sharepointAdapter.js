@@ -6,26 +6,43 @@ const crypto = require("crypto");
 // In-memory store for copy operations (Graph returns 202 + monitor URL)
 const copyOperations = new Map();
 
-const DOMAIN = "puneoffice"; 
+const DOMAIN = "puneoffice";
 const SITE_NAME = "RetinaTeam-AutoCADWebTeam";
 
-// Get SharePoint Site ID
+const SITE_ID_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const siteIdCache = { value: null, expiresAt: 0 };
+
+function invalidateSiteIdCache() {
+  siteIdCache.value = null;
+  siteIdCache.expiresAt = 0;
+}
+
+function handleAdapterError(err) {
+  const status = err.response?.status;
+  if (status === 401 || status === 403 || status === 404) {
+    invalidateSiteIdCache();
+  }
+  throw err;
+}
+
 async function getSiteId(accessToken) {
-  console.log("🔥 getSiteId CALLED");
+  const now = Date.now();
+  if (siteIdCache.value && now < siteIdCache.expiresAt) {
+    return siteIdCache.value;
+  }
 
   try {
     const response = await axios.get(
       `https://graph.microsoft.com/v1.0/sites/${DOMAIN}.sharepoint.com:/sites/${SITE_NAME}:`,
       {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       }
-
     );
 
-    return response.data.id;
-
+    const id = response.data.id;
+    siteIdCache.value = id;
+    siteIdCache.expiresAt = now + SITE_ID_TTL_MS;
+    return id;
   } catch (err) {
     console.log("getSiteId ERROR:", err.response?.data || err.message);
     throw err;
@@ -59,103 +76,123 @@ async function listItems(parentId, accessToken) {
 
   } catch (err) {
     console.log("listItems ERROR:", err.response?.data || err.message);
-    throw err;
+    handleAdapterError(err);
   }
 }
 
 async function getAllFolders(accessToken) {
-  const siteId = await getSiteId(accessToken);
+  try {
+    const siteId = await getSiteId(accessToken);
 
-  const response = await axios.get(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    }
-  );
+    const response = await axios.get(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
 
-  return response.data.value
-    .filter(item => item.folder)
-    .map(item => ({
-      id: item.id,
-      name: item.name,
-      type: "folder",
-      parentId: null,
-      size: item.size,
-      lastModifiedDateTime: item.lastModifiedDateTime
-    }));
-
+    return response.data.value
+      .filter(item => item.folder)
+      .map(item => ({
+        id: item.id,
+        name: item.name,
+        type: "folder",
+        parentId: null,
+        size: item.size,
+        lastModifiedDateTime: item.lastModifiedDateTime
+      }));
+  } catch (err) {
+    console.log("getAllFolders ERROR:", err.response?.data || err.message);
+    handleAdapterError(err);
+  }
 }
 
 // RENAME
 async function renameItem(id, newName, accessToken) {
-  const siteId = await getSiteId(accessToken);
+  try {
+    const siteId = await getSiteId(accessToken);
 
-  const response = await axios.patch(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
-    { name: newName },
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json"
+    const response = await axios.patch(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
+      { name: newName },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        }
       }
-    }
-  );
+    );
 
-  return response.data;
+    return response.data;
+  } catch (err) {
+    console.log("renameItem ERROR:", err.response?.data || err.message);
+    handleAdapterError(err);
+  }
 }
 
 // MOVE
 async function moveItem(id, targetFolderId, accessToken) {
-  const siteId = await getSiteId(accessToken);
+  try {
+    const siteId = await getSiteId(accessToken);
 
-  const response = await axios.patch(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
-    {
-      parentReference: {
-        id: targetFolderId
+    const response = await axios.patch(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
+      {
+        parentReference: {
+          id: targetFolderId
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        }
       }
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json"
-      }
-    }
-  );
+    );
 
-  return response.data;
+    return response.data;
+  } catch (err) {
+    console.log("moveItem ERROR:", err.response?.data || err.message);
+    handleAdapterError(err);
+  }
 }
 
 // DELETE
 async function deleteItem(id, accessToken) {
-  const siteId = await getSiteId(accessToken);
+  try {
+    const siteId = await getSiteId(accessToken);
 
-  await axios.delete(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    }
-  );
+    await axios.delete(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
 
-  return { id };
+    return { id };
+  } catch (err) {
+    console.log("deleteItem ERROR:", err.response?.data || err.message);
+    handleAdapterError(err);
+  }
 }
 
 // UPLOAD (Simple small file upload)
 async function uploadItem(name, fileBuffer, targetFolderId, accessToken) {
-  const siteId = await getSiteId(accessToken);
+  try {
+    const siteId = await getSiteId(accessToken);
 
-  const url = targetFolderId
-    ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}:/${name}:/content`
-    : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${name}:/content`;
+    const url = targetFolderId
+      ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}:/${name}:/content`
+      : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${name}:/content`;
 
-  const response = await axios.put(url, fileBuffer, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/octet-stream"
-    }
-  });
+    const response = await axios.put(url, fileBuffer, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/octet-stream"
+      }
+    });
 
-  return response.data;
+    return response.data;
+  } catch (err) {
+    console.log("uploadItem ERROR:", err.response?.data || err.message);
+    handleAdapterError(err);
+  }
 }
 
 // COPY (async: Graph returns 202 + Location monitor URL)
@@ -174,44 +211,49 @@ function _copyNewName(originalName) {
  * Client should poll getCopyStatus(operationId) for progress and result.
  */
 async function startCopy(id, targetFolderId, accessToken) {
-  const siteId = await getSiteId(accessToken);
+  try {
+    const siteId = await getSiteId(accessToken);
 
-  const itemInfo = await axios.get(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+    const itemInfo = await axios.get(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
 
-  const newName = _copyNewName(itemInfo.data.name);
+    const newName = _copyNewName(itemInfo.data.name);
 
-  const response = await axios.post(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}/copy`,
-    {
-      parentReference: targetFolderId ? { id: targetFolderId } : undefined,
-      name: newName
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json"
+    const response = await axios.post(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${id}/copy`,
+      {
+        parentReference: targetFolderId ? { id: targetFolderId } : undefined,
+        name: newName
       },
-      validateStatus: (status) => status === 202
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        validateStatus: (status) => status === 202
+      }
+    );
+
+    const monitorUrl = response.headers?.location;
+    if (!monitorUrl) {
+      throw new Error("Graph copy did not return 202 with Location header");
     }
-  );
 
-  const monitorUrl = response.headers?.location;
-  if (!monitorUrl) {
-    throw new Error("Graph copy did not return 202 with Location header");
+    const operationId = crypto.randomUUID();
+    copyOperations.set(operationId, {
+      monitorUrl,
+      newName,
+      sourceId: id,
+      createdAt: Date.now()
+    });
+
+    return { operationId, newName, sourceId: id };
+  } catch (err) {
+    console.log("startCopy ERROR:", err.response?.data || err.message);
+    handleAdapterError(err);
   }
-
-  const operationId = crypto.randomUUID();
-  copyOperations.set(operationId, {
-    monitorUrl,
-    newName,
-    sourceId: id,
-    createdAt: Date.now()
-  });
-
-  return { operationId, newName, sourceId: id };
 }
 
 /**
