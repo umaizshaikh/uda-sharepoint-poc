@@ -49,6 +49,23 @@ async function getToken(req, res) {
 }
 
 /**
+ * Helper: Extract userId from JWT payload for audit (no token logged)
+ */
+function getUserId(token) {
+  if (!token || typeof token !== "string") return "unknown";
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return "unknown";
+    const payload = JSON.parse(
+      Buffer.from(parts[1], "base64url").toString("utf8")
+    );
+    return payload.preferred_username ?? payload.upn ?? payload.unique_name ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
  * GET - List Files
  */
 router.get("/", async (req, res) => {
@@ -83,7 +100,8 @@ router.post("/rename", async (req, res) => {
       });
     }
 
-    const updated = await fileService.rename(id, newName, { accessToken: token });
+    const context = { accessToken: token, userId: getUserId(token) };
+    const updated = await fileService.rename(id, newName, context);
     res.json(updated);
 
   } catch (err) {
@@ -124,10 +142,11 @@ router.post("/move", async (req, res) => {
       });
     }
 
+    const context = { accessToken: token, userId: getUserId(token) };
     const updated = await fileService.move(
       id,
       targetFolderId || null,
-      { accessToken: token }
+      context
     );
 
     res.json(updated);
@@ -155,11 +174,12 @@ router.post("/upload", upload.single("file"), async (req, res) => {
       });
     }
 
+    const context = { accessToken: token, userId: getUserId(token) };
     const created = await fileService.upload(
       file.originalname,
       file.buffer,
       targetFolderId,
-      { accessToken: token }
+      context
     );
 
 
@@ -187,16 +207,17 @@ router.post("/copy", async (req, res) => {
       });
     }
 
-    const result = await fileService.startCopy(
+    const context = { accessToken: token, userId: getUserId(token) };
+    const result = await fileService.copy(
       id,
       targetFolderId || null,
-      { accessToken: token }
+      context
     );
 
     res.status(202).json({
       operationId: result.operationId,
       newName: result.newName,
-      message: "Copy started. Poll GET /files/copy/status/:operationId for progress and result."
+      message: "Copy started. Poll GET /files/copy/status/:operationId or GET /operations/:id for progress and result."
     });
   } catch (err) {
     console.error("COPY ERROR:", err);
@@ -234,7 +255,8 @@ router.post("/delete", async (req, res) => {
       });
     }
 
-    const deleted = await fileService.delete(id, { accessToken: token });
+    const context = { accessToken: token, userId: getUserId(token) };
+    const deleted = await fileService.delete(id, context);
     res.json(deleted);
 
   } catch (err) {

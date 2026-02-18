@@ -1,4 +1,4 @@
-const { v4: uuidv4 } = require('uuid');
+const crypto = require("crypto");
 
 class OperationManager {
   constructor() {
@@ -6,7 +6,7 @@ class OperationManager {
   }
 
   create({ type, provider, metadata = {} }) {
-    const id = uuidv4();
+    const id = crypto.randomUUID();
 
     const operation = {
       id,

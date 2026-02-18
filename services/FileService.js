@@ -1,26 +1,127 @@
+const AuditService = require("./AuditService");
+
 class FileService {
   constructor(provider) {
     this.provider = provider;
+  }
+
+  _userId(context) {
+    return context?.userId ?? "unknown";
   }
 
   list(parentId, context) {
     return this.provider.list(parentId, context);
   }
 
-  rename(id, newName, context) {
-    return this.provider.rename(id, newName, context);
+  async rename(id, newName, context) {
+    const userId = this._userId(context);
+    try {
+      const result = await this.provider.rename(id, newName, context);
+      AuditService.log({
+        userId,
+        action: "RENAME",
+        provider: "sharepoint",
+        resourceId: id,
+        resourceName: newName,
+        operationId: null,
+        status: "success",
+        error: null
+      });
+      return result;
+    } catch (err) {
+      AuditService.log({
+        userId,
+        action: "RENAME",
+        provider: "sharepoint",
+        resourceId: id,
+        resourceName: newName,
+        operationId: null,
+        status: "failed",
+        error: err.message ?? String(err)
+      });
+      throw err;
+    }
   }
 
-  move(id, targetFolderId, context) {
-    return this.provider.move(id, targetFolderId, context);
+  async move(id, targetFolderId, context) {
+    const userId = this._userId(context);
+    try {
+      const result = await this.provider.move(id, targetFolderId, context);
+      AuditService.log({
+        userId,
+        action: "MOVE",
+        provider: "sharepoint",
+        resourceId: id,
+        resourceName: null,
+        operationId: null,
+        status: "success",
+        error: null
+      });
+      return result;
+    } catch (err) {
+      AuditService.log({
+        userId,
+        action: "MOVE",
+        provider: "sharepoint",
+        resourceId: id,
+        resourceName: null,
+        operationId: null,
+        status: "failed",
+        error: err.message ?? String(err)
+      });
+      throw err;
+    }
   }
 
-  upload(name, buffer, targetFolderId, context) {
-    return this.provider.upload(name, buffer, targetFolderId, context);
+  async upload(name, buffer, targetFolderId, context) {
+    const userId = this._userId(context);
+    try {
+      const result = await this.provider.upload(name, buffer, targetFolderId, context);
+      AuditService.log({
+        userId,
+        action: "UPLOAD",
+        provider: "sharepoint",
+        resourceId: result?.id ?? null,
+        resourceName: name,
+        operationId: null,
+        status: "success",
+        error: null
+      });
+      return result;
+    } catch (err) {
+      AuditService.log({
+        userId,
+        action: "UPLOAD",
+        provider: "sharepoint",
+        resourceId: null,
+        resourceName: name,
+        operationId: null,
+        status: "failed",
+        error: err.message ?? String(err)
+      });
+      throw err;
+    }
   }
 
-  copy(id, targetFolderId, context) {
-    return this.provider.copy(id, targetFolderId, context);
+  async copy(id, targetFolderId, context) {
+    const userId = this._userId(context);
+    try {
+      const result = await this.provider.copy(id, targetFolderId, context);
+      // Async copy: completion logged in provider polling (success/failed).
+      return result;
+    } catch (err) {
+      AuditService.log({
+        userId,
+        action: "COPY",
+        provider: "sharepoint",
+        resourceId: id,
+        resourceName: null,
+        operationId: null,
+        status: "failed",
+        error: err.message ?? String(err)
+      });
+      throw err;
+    }
   }
 
   startCopy(id, targetFolderId, context) {
@@ -31,8 +132,34 @@ class FileService {
     return this.provider.getCopyStatus(operationId);
   }
 
-  delete(id, context) {
-    return this.provider.delete(id, context);
+  async delete(id, context) {
+    const userId = this._userId(context);
+    try {
+      const result = await this.provider.delete(id, context);
+      AuditService.log({
+        userId,
+        action: "DELETE",
+        provider: "sharepoint",
+        resourceId: id,
+        resourceName: null,
+        operationId: null,
+        status: "success",
+        error: null
+      });
+      return result;
+    } catch (err) {
+      AuditService.log({
+        userId,
+        action: "DELETE",
+        provider: "sharepoint",
+        resourceId: id,
+        resourceName: null,
+        operationId: null,
+        status: "failed",
+        error: err.message ?? String(err)
+      });
+      throw err;
+    }
   }
 
   getAllFolders(context) {
