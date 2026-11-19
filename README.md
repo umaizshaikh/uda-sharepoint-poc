@@ -1,174 +1,51 @@
-# 📄 README.md
-
-```markdown
 # UDA SharePoint Provider – Proof of Concept
 
 ## Overview
 
-This repository contains a Proof of Concept (PoC) implementation of a **SharePoint Service Provider** compatible with Autodesk’s L2FS (Layer 2 File System) abstraction model.
-
-The objective is to validate the technical feasibility of federating SharePoint storage into a unified filesystem interface similar to UDA/L2FS.
-
-This PoC demonstrates:
-
-- SharePoint integration via Microsoft Graph
-- Delegated OAuth2 authentication (user context)
-- Full CRUD filesystem operations
-- SPI-style provider abstraction
-- Clean separation of concerns
-
-The architecture is intentionally structured for potential integration into L2FS with minimal refactoring.
-
----
-
-## Architecture (High-Level)
-
-```
-
-Express Routes
-->
-FileService
-->
-FileProvider (Interface)
-->
-SharePointProvider
-->
-sharepointAdapter (Graph API Wrapper)
-->
-Microsoft Graph API
-
-````
-
-- Routes are provider-agnostic
-- Business logic depends on abstraction
-- SharePoint-specific logic is isolated
-- UI is decoupled from storage implementation
-
-See `ARCHITECTURE.md` for detailed design documentation.
-
----
-
-## Implemented Operations
-
-| Operation | Route |
-|------------|--------|
-| List Files | `GET /files` |
-| Get All Folders | `GET /files/folders/all` |
-| Rename | `POST /files/rename` |
-| Move | `POST /files/move` |
-| Upload (small files) | `POST /files/upload` |
-| Copy | `POST /files/copy` |
-| Delete | `POST /files/delete` |
-
-All responses return a normalized filesystem object independent of SharePoint-specific fields.
-
----
+This repository contains a Proof of Concept (PoC) implementation of a SharePoint service provider using Microsoft Graph and a provider-style filesystem abstraction. It supports delegated Microsoft sign-in and file operations such as listing, moving, renaming, uploading, copying, and deleting.
 
 ## Setup
 
-### 1. Clone Repository
+1. Install Node.js 18 or newer.
+2. Install dependencies with `npm install`.
+3. Copy `.env.example` to `.env` and set the values for your Microsoft app registration.
+4. Run `node server.js`, then open `http://localhost:3000/login`.
 
-```bash
-git clone <repo>
-cd uda-sharepoint-poc
-````
+Required configuration:
 
-### 2. Install Dependencies
+| Variable | Purpose |
+| --- | --- |
+| `TENANT_ID` | Microsoft Entra tenant used for OAuth |
+| `CLIENT_ID` | App registration client ID |
+| `CLIENT_SECRET` | App registration secret (keep private; do not commit `.env`) |
+| `SESSION_SECRET` | Random session-signing secret; keep stable between restarts |
 
-```bash
-npm install
-```
+Generate a `SESSION_SECRET` with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. If omitted, the app generates a temporary random value so local development still starts; users will need to sign in again after each restart. Set a persistent secret in deployment environments.
 
-### 3. Configure Environment
+Register `http://localhost:3000/auth/callback` as a redirect URI and grant the delegated Graph permissions required by your deployment.
 
-Create `.env`:
+## Security notes
 
-```
-TENANT_ID=
-CLIENT_ID=
-CLIENT_SECRET=
-SESSION_SECRET=
-```
+- Never commit `.env` or real credentials. The included `.env.example` contains placeholders only.
+- Session cookies are HTTP-only, SameSite=Lax, time-limited, and marked Secure in production.
+- OAuth sign-in uses a per-request state value, and the session ID is regenerated after successful authentication.
+- File and operation endpoints require a signed-in session. Copy-operation status is restricted to the user who started it.
+- The previously hardcoded session-signing value is no longer used. Because it was in public Git history, existing deployments should set a new `SESSION_SECRET` and restart to invalidate sessions signed with the old value.
+- The SharePoint tenant domain and site path in `services/sharepointAdapter.js` identify the target site, but are not authentication credentials; access still depends on Microsoft authorization. Configure your own target when adapting this PoC.
 
----
+## Implemented operations
 
-## Azure App Registration
+| Operation | Route |
+| --- | --- |
+| List files | `GET /files` |
+| List folders | `GET /files/folders/all` |
+| Rename | `POST /files/rename` |
+| Move | `POST /files/move` |
+| Upload | `POST /files/upload` |
+| Copy | `POST /files/copy` |
+| Delete | `POST /files/delete` |
+| Copy status | `GET /operations/:id` |
 
-### Redirect URI
+## Architecture
 
-```
-http://localhost:3000/auth/callback
-```
-
-### Required Delegated Permissions
-
-* Files.ReadWrite
-* Sites.ReadWrite.All
-* Sites.Read.All
-* User.Read
-* offline_access
-
-Admin consent required.
-
----
-
-## Run Application
-
-```bash
-node server.js
-```
-
-Open:
-
-```
-http://localhost:3000/login
-```
-
----
-
-## Key Design Decisions
-
-* **Delegated OAuth2 (User Context)**
-  Ensures SharePoint ACL compliance and aligns with UDA user model.
-
-* **Provider Abstraction (SPI Pattern)**
-  Additional providers (OneDrive, Dropbox, ACC Docs, etc.) can be added without route changes.
-
-* **Token Lifecycle Centralization**
-  Automatic refresh handled by `TokenService`.
-
-* **Storage Decoupling**
-  UI and routes do not depend on SharePoint-specific structures.
-
----
-
-## Known PoC Limitations
-
-* Async copy polling not implemented
-* Large file chunked upload not implemented
-* SiteId caching not implemented
-* No webhook-based synchronization
-* Session-based (not stateless)
-* No structured logging or standardized error contract
-
----
-
-## Production Hardening (Next Steps)
-
-* Async operation tracking for copy
-* SiteId caching layer
-* Chunked upload support
-* Structured logging
-* Error contract standardization
-* Stateless token management
-* Multi-tenant support
-
----
-
-## Conclusion
-
-This PoC validates the feasibility of integrating SharePoint into an L2FS-style unified filesystem abstraction using a modular, extensible provider architecture.
-
-For detailed technical design, see `ARCHITECTURE.md`.
-
-````
+Express routes delegate to `FileService`, which uses the `SharePointProvider` and `services/sharepointAdapter.js` for Microsoft Graph operations. `OperationManager` tracks asynchronous copy status in memory. This is a proof of concept; production use should configure a durable session store, HTTPS/reverse-proxy settings, and operational monitoring.
